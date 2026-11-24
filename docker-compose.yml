@@ -1,0 +1,63 @@
+# Servicios de infraestructura. Las credenciales salen de variables de entorno (archivo .env junto a este archivo,
+# ver .env.example). Este archivo base NO publica puertos: en producción los servicios solo son accesibles desde la
+# red interna de Docker. En desarrollo, docker-compose.override.yml (se carga automáticamente) publica los puertos
+# solo en 127.0.0.1.
+#
+#   Desarrollo:  docker compose up -d
+#   Producción:  docker compose -f docker-compose.yml up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: impulso-license-db
+    environment:
+      # Superusuario de administración del contenedor (no lo usa la aplicación).
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:?Defina POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Defina POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Defina POSTGRES_DB}
+      # Dueño del esquema (solo migraciones) y usuario de la aplicación (solo datos), sin superusuario.
+      # Los crea docker/postgres/01-usuario-app.sh.
+      MIGRACION_DB_USER: ${MIGRACION_DB_USER:?Defina MIGRACION_DB_USER}
+      MIGRACION_DB_PASSWORD: ${MIGRACION_DB_PASSWORD:?Defina MIGRACION_DB_PASSWORD}
+      APP_DB_USER: ${APP_DB_USER:?Defina APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Defina APP_DB_PASSWORD}
+    volumes:
+      # Volumen nuevo para la base impulso_license; el anterior (pgdata) queda intacto como respaldo.
+      - pgdata_impulso:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: impulso-license-redis
+    # Autenticación obligatoria: sin contraseña, cualquier comando responde NOAUTH.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Defina REDIS_PASSWORD}", "--appendonly", "yes"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      retries: 10
+
+  # Antivirus de los archivos subidos (obligatorio en producción: CLAMAV_HOST). Pesa ~1 GB de RAM, por eso en
+  # desarrollo es opcional:  docker compose --profile antivirus up -d
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: impulso-license-clamav
+    profiles: ["antivirus"]
+    volumes:
+      - clamavdb:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh"]
+      interval: 30s
+      retries: 20
+      start_period: 120s
+
+volumes:
+  pgdata_impulso:
+  clamavdb:
+  redisdata:

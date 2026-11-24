@@ -1,0 +1,23 @@
+# Finales de línea iguales en Linux y Windows: todo el texto se guarda y se extrae con LF.
+# Imprescindible para los scripts que corren dentro de contenedores Linux (docker/postgres/*.sh):
+# con CRLF, /bin/sh falla al inicializar la base.
+* text=auto eol=lf
+
+# Scripts de Windows: CRLF.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binarios: sin conversión.
+*.xlsx binary
+*.xls  binary
+*.docx binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.dump binary

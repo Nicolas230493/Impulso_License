@@ -1,0 +1,96 @@
+IMPULSO LICENSE - DONDE PUBLICARLO PARA HACER PRUEBAS
+=====================================================
+Fecha: 24/11/2026
+
+QUE NECESITA EL SISTEMA
+-----------------------
+- Un proceso siempre encendido (la API NestJS): las tareas diarias (alertas, vencimiento
+  de dictámenes, purga de sesiones) corren dentro del servidor.
+- PostgreSQL con acceso de administrador (para crear los dos usuarios de la base:
+  dueño del esquema y aplicación) y Redis.
+- Disco permanente para los archivos subidos (backend/storage).
+- Unos 4 GB de RAM si se activa el antivirus ClamAV (usa ~1 GB).
+- Un dominio o subdominio para el certificado HTTPS (sirve uno gratis de DuckDNS).
+
+
+OPCION RECOMENDADA: UN VPS CON DOCKER
+-------------------------------------
+El proyecto ya trae docker-compose (PostgreSQL, Redis, ClamAV) y un ejemplo de nginx
+con HTTPS (deploy/nginx/edulicencias.conf). Todo en un solo lugar, sin reenvíos, y con la
+misma configuración que en producción.
+
+Proveedores (precios aproximados, verificar en cada sitio):
+
+1. Oracle Cloud Free Tier (máquina ARM) - GRATIS
+   + Hasta 4 núcleos y 24 GB de RAM sin cargo: entra el antivirus.
+   - El registro pide tarjeta y a veces no hay capacidad en la región.
+
+2. Hetzner Cloud (CX22 o CAX11, 4 GB) - ~4-5 EUR por mes
+   + Lo más simple y barato, buen rendimiento.
+   - Sin centro de datos en Sudamérica (~200 ms de latencia, aceptable para pruebas).
+
+3. DigitalOcean / Linode / AWS Lightsail (4 GB) - ~20-24 USD por mes
+   + Paneles muy simples y buena documentación.
+   - Más caros que Hetzner por lo mismo.
+
+4. Railway o Render (plataformas administradas) - ~5-20 USD por mes
+   + Se sube sin administrar un servidor.
+   - Hay que agregar un volumen para los archivos; ClamAV no entra cómodo; en Render la
+     base gestionada podría no permitir crear los dos usuarios de la base.
+
+5. Cloudflare Tunnel o ngrok desde la propia PC - GRATIS
+   + Sirve para mostrarlo HOY con un enlace HTTPS, en unos 10 minutos.
+   - Solo funciona mientras la PC esté prendida.
+
+Resumen:
+- Para mostrarlo ya: Cloudflare Tunnel apuntando a localhost:5173.
+- Para un entorno de pruebas estable: Hetzner (u Oracle si se quiere gratis), con Ubuntu,
+  Docker, el docker-compose del proyecto, el nginx de deploy/ y certificado de
+  Let's Encrypt.
+
+
+NETLIFY O VERCEL
+----------------
+Sirven SOLO PARA EL FRONTEND (la carpeta dist de Vite). El backend no entra, porque son
+plataformas serverless (las funciones se encienden con cada petición y se apagan):
+- No hay proceso siempre encendido para las tareas diarias.
+- El disco se borra en cada ejecución (se perderían los archivos subidos).
+- Vercel acepta ~4,5 MB por petición en sus funciones (el sistema admite 10 MB).
+- No hay conexión al antivirus ni PostgreSQL/Redis nativos.
+Adaptarlo implicaría reescribir partes importantes.
+
+Esquema posible dividido:
+  Frontend    -> Netlify o Vercel (gratis)
+  API NestJS  -> Railway, Render, Fly.io o un VPS
+  PostgreSQL  -> mismo VPS, o gestionado (Neon, Supabase, Railway)
+  Redis       -> mismo VPS, o gestionado (Upstash, Railway)
+Combinación con menos cambios: frontend en Netlify o Vercel + API, PostgreSQL y Redis en
+Railway.
+
+Ajustes necesarios en ese esquema:
+1. Reenviar /api/* al backend desde Netlify (netlify.toml) o Vercel (vercel.json). Si no,
+   el frontend y la API quedan en dominios distintos, el navegador no manda la cookie de
+   sesión (SameSite=Strict) y la sesión se cae a los 15 minutos.
+2. Copiar las cabeceras de seguridad (CSP, etc.) del nginx de deploy/ a la configuración
+   de Netlify o Vercel.
+3. Detrás del reenvío la API ve la IP de Netlify/Vercel, no la del usuario: el límite por
+   IP queda compartido entre todos (el límite por cuenta sigue funcionando). Para pruebas
+   alcanza.
+4. Probar que la subida de archivos de 10 MB pase por el reenvío.
+5. Agregar el dominio del frontend en CORS_ORIGINS del backend.
+6. Con base gestionada, confirmar que permita crear los dos usuarios de la base y el
+   trigger de la auditoría.
+
+
+ANTES DE SUBIRLO A CUALQUIER LADO
+---------------------------------
+1. Faltan los Dockerfiles de la API y del frontend (están en la hoja de ruta). Sin ellos
+   se puede correr la API con Node directamente en el servidor.
+2. Usar solo datos de prueba (seed de demostración): son datos de salud de docentes y la
+   Ley 25.326 aplica en cuanto haya datos reales.
+3. Configurar el servidor en modo producción (NODE_ENV=production) aunque sea de pruebas,
+   para validar HTTPS, Redis, cifrado (CLAVE_CIFRADO), antivirus (CLAMAV_HOST) y segundo
+   factor obligatorio para ADMIN y SUPERVISOR.
+4. Guardar CLAVE_CIFRADO en un lugar seguro aparte: sin ella no se pueden leer los
+   archivos cifrados.
+5. No compartir ni subir los archivos .env (tienen contraseñas y claves reales).

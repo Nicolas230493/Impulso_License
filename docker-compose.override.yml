@@ -1,0 +1,12 @@
+# Solo desarrollo (docker compose lo carga automáticamente). Publica los puertos únicamente en loopback,
+# de modo que no son accesibles desde otras máquinas de la red. No usar en producción.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5433:5432"
+  redis:
+    ports:
+      - "127.0.0.1:6380:6379"
+  clamav:
+    ports:
+      - "127.0.0.1:3310:3310"

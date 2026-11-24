@@ -1,0 +1,1024 @@
+// EduLicencias – Modelo de datos (SPEC 01, sección 8)
+// Todas las entidades de negocio están acotadas por institución (multi-institución).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  /// Usuario de la aplicación: solo lee y escribe datos (sin permisos sobre el esquema).
+  url       = env("DATABASE_URL")
+  /// Dueño del esquema: lo usa solo `prisma migrate` (ver docker/postgres/01-usuario-app.sh).
+  directUrl = env("DATABASE_URL_MIGRACIONES")
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum TipoGestion {
+  PUBLICA
+  PRIVADA
+}
+
+enum EstadoLaboral {
+  ACTIVO
+  INACTIVO
+  BAJA
+  JUBILADO
+}
+
+enum Turno {
+  MANANA
+  TARDE
+  VESPERTINO
+  NOCHE
+}
+
+enum SituacionRevista {
+  TITULAR
+  INTERINO
+  TRANSITORIO
+  SUPLENTE
+  PROVISIONAL
+}
+
+// ─────────── Nomenclador de licencias (Ley 647-E) ───────────
+
+/// Autoridad que otorga cada variante según el nomenclador.
+enum AutoridadLicencia {
+  DIRECTOR
+  SUPERVISOR
+  SUPERIOR_INMEDIATO
+  DIRECTOR_REGIONAL
+  SUBSECRETARIO
+  MINISTRO
+  BIENESTAR
+  JUNTA
+}
+
+/// Planilla de licencias a la que va cada motivo (IL1 comunes, IL2 extraordinarias).
+enum PlanillaIL {
+  IL1
+  IL2
+  NINGUNA
+}
+
+/// Cómo se origina un registro: lo pide el docente, se genera desde la designación o lo carga RR.HH.
+enum OrigenLicencia {
+  SOLICITUD
+  AUTOMATICA
+  NOVEDAD_RRHH
+}
+
+enum AlcanceCalendario {
+  NACIONAL
+  PROVINCIAL
+  INSTITUCION
+}
+
+enum TipoDiaNoLaborable {
+  FERIADO
+  RECESO
+  ASUETO
+}
+
+enum TipoCargo {
+  CARGO
+  HORAS_CATEDRA
+}
+
+enum CategoriaLicencia {
+  SALUD
+  FAMILIAR
+  ESTUDIO
+  GREMIAL
+  ADMINISTRATIVA
+  MATERNIDAD
+  OTRA
+}
+
+enum FormaComputo {
+  DIAS_CORRIDOS
+  DIAS_HABILES
+}
+
+enum TipoRegla {
+  MAX_DIAS_POR_SOLICITUD
+  MAX_DIAS_POR_ANIO
+  MAX_SOLICITUDES_POR_ANIO
+  MIN_ANTIGUEDAD_MESES
+  ANTICIPACION_MIN_DIAS
+}
+
+enum EstadoSolicitud {
+  BORRADOR
+  PENDIENTE
+  EN_REVISION
+  OBSERVADA
+  PENDIENTE_DICTAMEN // espera el dictamen de Reconocimientos Médicos (arts. 313 y 317)
+  ELEVADA // espera el instrumento legal de una autoridad externa
+  AUTORIZADA
+  RECHAZADA
+  FINALIZADA
+  ANULADA
+  INTERRUMPIDA // anual interrumpida (art. 315)
+  CANCELADA_CESE // cancelada por cese del interino o suplente (art. 350)
+  REENCUADRADA // enfermedad común que pasa a largo tratamiento (art. 316)
+}
+
+/// Por dónde llegó el pedido (arts. 313 d y 326).
+enum CanalIngreso {
+  SISTEMA
+  MAIL
+  CUADERNO
+  WHATSAPP
+  ORAL
+}
+
+enum TipoInstrumento {
+  DISPOSICION // de la escuela, numerada por institución y año
+  RESOLUCION // de una autoridad externa (Ministerio, Subsecretaría, Supervisión…)
+  DICTAMEN // de Reconocimientos Médicos
+}
+
+enum AvisoAusencia {
+  CON_AVISO
+  SIN_AVISO
+}
+
+enum DecisionAutorizacion {
+  APROBADA
+  OBSERVADA
+  RECHAZADA
+}
+
+enum EstadoReemplazo {
+  PROPUESTO
+  ACTIVO
+  FINALIZADO
+  ANULADO
+}
+
+enum EstadoAsistencia {
+  PRESENTE
+  AUSENTE
+  TARDANZA
+  LICENCIA
+}
+
+enum TipoNotificacion {
+  NUEVA_SOLICITUD
+  SOLICITUD_OBSERVADA
+  SOLICITUD_AUTORIZADA
+  SOLICITUD_RECHAZADA
+  LICENCIA_POR_FINALIZAR
+  REINCORPORACION_PENDIENTE
+  REEMPLAZO_ASIGNADO
+  PASO_PENDIENTE
+  CUENTA_BLOQUEADA
+  DICTAMEN_VENCIDO
+  ALERTA_BAJA
+  ABANDONO_SERVICIO
+  ESTADISTICA_MENSUAL
+  LICENCIA_CANCELADA
+  SOLICITUD_ELEVADA
+}
+
+// ───────────────────────── Administración ─────────────────────────
+
+model Institucion {
+  id           String      @id @default(uuid())
+  nombre       String
+  codigo       String      @unique // código corto para la numeración (LIC-<CODIGO>-AAAA-NNNNNN)
+  cue          String?     @unique // Clave Única de Establecimiento
+  cuit         String?
+  tipoGestion  TipoGestion @map("tipo_gestion")
+  jurisdiccion String?
+  domicilio    String?
+  telefono     String?
+  email        String?
+  activa       Boolean     @default(true)
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  usuarios      Usuario[]
+  roles         Rol[]
+  docentes      Docente[]
+  cargos        Cargo[]
+  cursos        Curso[]
+  espacios      EspacioCurricular[]
+  regimenes     RegimenLicencia[]
+  circuitos     CircuitoAutorizacion[]
+  solicitudes   SolicitudLicencia[]
+  reemplazos    Reemplazo[]
+  asistencias   Asistencia[]
+  novedades     Novedad[]
+  archivos      Archivo[]
+  feriados      Feriado[]
+  auditoria     Auditoria[]
+  secuencias    SecuenciaSolicitud[]
+  instrumentos  InstrumentoLegal[]
+  secuenciasDoc SecuenciaDocumento[]
+
+  @@map("instituciones")
+}
+
+model Usuario {
+  id                  String    @id @default(uuid())
+  institucionId       String    @map("institucion_id")
+  email               String    @unique
+  passwordHash        String    @map("password_hash")
+  nombre              String
+  apellido            String
+  activo              Boolean   @default(true)
+  docenteId           String?   @unique @map("docente_id")
+  ultimoAcceso        DateTime? @map("ultimo_acceso")
+  intentosFallidos    Int       @default(0) @map("intentos_fallidos")
+  bloqueadoHasta      DateTime? @map("bloqueado_hasta")
+  nivelBloqueo        Int       @default(0) @map("nivel_bloqueo") // backoff progresivo: 1, 5, 15 min
+  tokenVersion        Int       @default(0) @map("token_version") // se incrementa para revocar access tokens emitidos
+  debeCambiarPassword Boolean   @default(false) @map("debe_cambiar_password")
+  /// Segundo factor TOTP: secreto cifrado con CLAVE_CIFRADO (AES-256-GCM); activo solo tras verificar un código.
+  totpSecreto         String?   @map("totp_secreto")
+  totpActivo          Boolean   @default(false) @map("totp_activo")
+  /// Último paso TOTP aceptado: impide reutilizar un código.
+  totpUltimoPaso      Int?      @map("totp_ultimo_paso")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  institucion    Institucion    @relation(fields: [institucionId], references: [id])
+  docente        Docente?       @relation(fields: [docenteId], references: [id])
+  roles          UsuarioRol[]
+  sesiones       Sesion[]
+  notificaciones Notificacion[]
+
+  @@index([institucionId])
+  @@map("usuarios")
+}
+
+model Sesion {
+  id         String    @id @default(uuid())
+  usuarioId  String    @map("usuario_id")
+  tokenHash  String    @unique @map("token_hash")
+  ip         String?
+  userAgent  String?   @map("user_agent")
+  expiraEn   DateTime  @map("expira_en")
+  revocadaEn DateTime? @map("revocada_en")
+  /// Sesión que la reemplazó al rotar el refresh token (permite el margen de gracia entre pestañas).
+  reemplazadaPorId String? @map("reemplazada_por_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+  @@map("sesiones")
+}
+
+model Rol {
+  id            String  @id @default(uuid())
+  institucionId String  @map("institucion_id")
+  codigo        String
+  nombre        String
+  descripcion   String?
+  sistema       Boolean @default(false) // roles base: no se pueden eliminar
+
+  institucion Institucion    @relation(fields: [institucionId], references: [id])
+  usuarios    UsuarioRol[]
+  permisos    RolPermiso[]
+  pasos       PasoCircuito[]
+
+  @@unique([institucionId, codigo])
+  @@map("roles")
+}
+
+model Permiso {
+  id          String @id @default(uuid())
+  codigo      String @unique
+  modulo      String
+  descripcion String
+
+  roles RolPermiso[]
+
+  @@map("permisos")
+}
+
+model UsuarioRol {
+  usuarioId String @map("usuario_id")
+  rolId     String @map("rol_id")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+
+  @@id([usuarioId, rolId])
+  @@map("usuario_roles")
+}
+
+model RolPermiso {
+  rolId     String @map("rol_id")
+  permisoId String @map("permiso_id")
+
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+  permiso Permiso @relation(fields: [permisoId], references: [id], onDelete: Cascade)
+
+  @@id([rolId, permisoId])
+  @@map("rol_permisos")
+}
+
+// ───────────────────────────── Personal ─────────────────────────────
+
+model Docente {
+  id                  String        @id @default(uuid())
+  institucionId       String        @map("institucion_id")
+  legajo              String
+  dni                 String
+  cuil                String
+  apellido            String
+  nombre              String
+  fechaNacimiento     DateTime?     @map("fecha_nacimiento") @db.Date
+  email               String?
+  telefono            String?
+  fechaIngreso        DateTime      @map("fecha_ingreso") @db.Date
+  /// Ingreso al sistema educativo provincial (antigüedad en el sistema, art. 331 b). Si falta se usa fechaIngreso.
+  fechaIngresoSistema DateTime?     @map("fecha_ingreso_sistema") @db.Date
+  estadoLaboral       EstadoLaboral @default(ACTIVO) @map("estado_laboral")
+  observaciones       String?
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  institucion           Institucion         @relation(fields: [institucionId], references: [id])
+  usuario               Usuario?
+  contactos             Contacto[]
+  domicilios            Domicilio[]
+  documentos            DocumentoPersonal[]
+  designaciones         Designacion[]
+  solicitudes           SolicitudLicencia[]
+  reemplazosComoTitular Reemplazo[]         @relation("Titular")
+  suplencias            ReemplazoDocente[]
+  asistencias           Asistencia[]
+  saldos                SaldoLicencia[]
+  novedades             Novedad[]
+
+  @@unique([institucionId, legajo])
+  @@unique([institucionId, dni])
+  @@index([institucionId, apellido])
+  @@map("docentes")
+}
+
+model Contacto {
+  id         String  @id @default(uuid())
+  docenteId  String  @map("docente_id")
+  tipo       String // TELEFONO, EMAIL, EMERGENCIA
+  valor      String
+  referencia String?
+  principal  Boolean @default(false)
+
+  docente Docente @relation(fields: [docenteId], references: [id], onDelete: Cascade)
+
+  @@map("contactos")
+}
+
+model Domicilio {
+  id           String  @id @default(uuid())
+  docenteId    String  @map("docente_id")
+  calle        String
+  numero       String?
+  piso         String?
+  localidad    String
+  provincia    String
+  codigoPostal String? @map("codigo_postal")
+  vigente      Boolean @default(true)
+
+  docente Docente @relation(fields: [docenteId], references: [id], onDelete: Cascade)
+
+  @@map("domicilios")
+}
+
+model DocumentoPersonal {
+  id          String   @id @default(uuid())
+  docenteId   String   @map("docente_id")
+  archivoId   String   @unique @map("archivo_id")
+  tipo        String // DNI, TITULO, CERTIFICADO, etc.
+  descripcion String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  docente Docente @relation(fields: [docenteId], references: [id], onDelete: Cascade)
+  archivo Archivo @relation(fields: [archivoId], references: [id])
+
+  @@map("documentos_personales")
+}
+
+model Cargo {
+  id            String    @id @default(uuid())
+  institucionId String    @map("institucion_id")
+  codigo        String
+  nombre        String
+  tipo          TipoCargo
+  activo        Boolean   @default(true)
+
+  institucion   Institucion   @relation(fields: [institucionId], references: [id])
+  designaciones Designacion[]
+
+  @@unique([institucionId, codigo])
+  @@map("cargos")
+}
+
+model Curso {
+  id            String @id @default(uuid())
+  institucionId String @map("institucion_id")
+  nombre        String // p.ej. "3° B"
+  anio          Int
+  division      String
+  turno         Turno
+  cicloLectivo  Int    @map("ciclo_lectivo")
+
+  institucion   Institucion   @relation(fields: [institucionId], references: [id])
+  designaciones Designacion[]
+
+  @@unique([institucionId, cicloLectivo, anio, division, turno])
+  @@map("cursos")
+}
+
+model EspacioCurricular {
+  id            String  @id @default(uuid())
+  institucionId String  @map("institucion_id")
+  codigo        String
+  nombre        String
+  activo        Boolean @default(true)
+
+  institucion   Institucion   @relation(fields: [institucionId], references: [id])
+  designaciones Designacion[]
+
+  @@unique([institucionId, codigo])
+  @@map("espacios_curriculares")
+}
+
+model Designacion {
+  id                  String           @id @default(uuid())
+  docenteId           String           @map("docente_id")
+  cargoId             String           @map("cargo_id")
+  cursoId             String?          @map("curso_id")
+  espacioCurricularId String?          @map("espacio_curricular_id")
+  turno               Turno
+  situacionRevista    SituacionRevista @map("situacion_revista")
+  horasCatedra        Int?             @map("horas_catedra")
+  fechaDesde          DateTime         @map("fecha_desde") @db.Date
+  fechaHasta          DateTime?        @map("fecha_hasta") @db.Date
+  resolucion          String? // instrumento legal de designación
+  activa              Boolean          @default(true)
+  motivoCese          String?          @map("motivo_cese") // p. ej. "Presentación del titular" (art. 350)
+  sinTermino          Boolean          @default(false) @map("sin_termino") // suplencia sin término (art. 340 b)
+  createdAt           DateTime         @default(now()) @map("created_at")
+
+  docente     Docente                @relation(fields: [docenteId], references: [id])
+  cargo       Cargo                  @relation(fields: [cargoId], references: [id])
+  curso       Curso?                 @relation(fields: [cursoId], references: [id])
+  espacio     EspacioCurricular?     @relation(fields: [espacioCurricularId], references: [id])
+  horarios    Horario[]
+  solicitudes SolicitudDesignacion[]
+  reemplazos  Reemplazo[]
+  asistencias Asistencia[]
+
+  @@index([docenteId])
+  @@map("designaciones")
+}
+
+model Horario {
+  id            String @id @default(uuid())
+  designacionId String @map("designacion_id")
+  diaSemana     Int    @map("dia_semana") // 1 = lunes … 7 = domingo
+  horaDesde     String @map("hora_desde") // "HH:mm"
+  horaHasta     String @map("hora_hasta")
+
+  designacion Designacion @relation(fields: [designacionId], references: [id], onDelete: Cascade)
+  coberturas  Cobertura[]
+
+  @@map("horarios")
+}
+
+model Feriado {
+  id            String             @id @default(uuid())
+  institucionId String             @map("institucion_id")
+  fecha         DateTime           @db.Date
+  /// Último día, para recesos de varios días. Null = un solo día.
+  fechaHasta    DateTime?          @map("fecha_hasta") @db.Date
+  descripcion   String
+  alcance       AlcanceCalendario  @default(INSTITUCION)
+  tipo          TipoDiaNoLaborable @default(FERIADO)
+
+  institucion Institucion @relation(fields: [institucionId], references: [id])
+
+  @@unique([institucionId, fecha])
+  @@map("feriados")
+}
+
+// ───────────────────────────── Licencias ─────────────────────────────
+
+model RegimenLicencia {
+  id            String      @id @default(uuid())
+  institucionId String      @map("institucion_id")
+  codigo        String
+  nombre        String
+  tipoGestion   TipoGestion @map("tipo_gestion")
+  normativa     String? // ley / decreto / convenio de referencia
+  descripcion   String?
+  vigenteDesde  DateTime    @map("vigente_desde") @db.Date
+  vigenteHasta  DateTime?   @map("vigente_hasta") @db.Date
+  activo        Boolean     @default(true)
+
+  institucion Institucion      @relation(fields: [institucionId], references: [id])
+  tipos       TipoLicencia[]
+  motivos     MotivoLicencia[]
+
+  @@unique([institucionId, codigo])
+  @@map("regimenes_licencias")
+}
+
+model TipoLicencia {
+  id                     String            @id @default(uuid())
+  regimenId              String            @map("regimen_id")
+  circuitoId             String?           @map("circuito_id")
+  codigo                 String
+  nombre                 String
+  categoria              CategoriaLicencia
+  articulo               String? // artículo de la norma
+  descripcion            String?
+  documentacionRequerida String[]          @map("documentacion_requerida")
+  formaComputo           FormaComputo      @map("forma_computo")
+  conGoceHaberes         Boolean           @default(true) @map("con_goce_haberes")
+  autoridadCompetente    String?           @map("autoridad_competente")
+  sensible               Boolean           @default(false) // datos de salud: nombre, motivo y archivos reservados
+  /// Tipo "espejo" de un motivo del nomenclador: mantiene compatibles informes, calendario y bandeja.
+  motivoId               String?           @unique @map("motivo_id")
+  vigenteDesde           DateTime          @map("vigente_desde") @db.Date
+  vigenteHasta           DateTime?         @map("vigente_hasta") @db.Date
+  activo                 Boolean           @default(true)
+
+  regimen     RegimenLicencia       @relation(fields: [regimenId], references: [id])
+  circuito    CircuitoAutorizacion? @relation(fields: [circuitoId], references: [id])
+  motivo      MotivoLicencia?       @relation(fields: [motivoId], references: [id])
+  reglas      ReglaLicencia[]
+  solicitudes SolicitudLicencia[]
+
+  @@unique([regimenId, codigo])
+  @@map("tipos_licencias")
+}
+
+model ReglaLicencia {
+  id             String    @id @default(uuid())
+  tipoLicenciaId String    @map("tipo_licencia_id")
+  tipo           TipoRegla
+  valor          Int
+  descripcion    String?
+
+  tipoLicencia TipoLicencia @relation(fields: [tipoLicenciaId], references: [id], onDelete: Cascade)
+
+  @@unique([tipoLicenciaId, tipo])
+  @@map("reglas_licencias")
+}
+
+model SolicitudLicencia {
+  id                   String          @id @default(uuid())
+  institucionId        String          @map("institucion_id")
+  numero               String // p.ej. LIC-DEMO-2026-000123 (único por institución)
+  docenteId            String          @map("docente_id")
+  tipoLicenciaId       String          @map("tipo_licencia_id")
+  fechaSolicitud       DateTime        @default(now()) @map("fecha_solicitud")
+  fechaDesde           DateTime        @map("fecha_desde") @db.Date
+  fechaHasta           DateTime        @map("fecha_hasta") @db.Date
+  diasComputados       Int             @map("dias_computados")
+  motivo               String?
+  estado               EstadoSolicitud @default(BORRADOR)
+  pasoActual           Int             @default(1) @map("paso_actual")
+  solicitanteId        String          @map("solicitante_id")
+  motivoId             String?         @map("motivo_id") // motivo del nomenclador (null = régimen anterior)
+  canalIngreso         CanalIngreso    @default(SISTEMA) @map("canal_ingreso")
+  avisoEn              DateTime?       @map("aviso_en") // fecha y hora del aviso de ausencia
+  fechaEvento          DateTime?       @map("fecha_evento") @db.Date // casamiento, examen, fallecimiento…
+  ampliaciones         String[] // claves de ampliación del tope acreditadas (p. ej. "traslado")
+  pctHaberes           Int?            @map("pct_haberes")
+  tramosHaberes        Json?           @map("tramos_haberes") // reparto de los días por tramo de haberes
+  origen               OrigenLicencia  @default(SOLICITUD)
+  solicitudPadreId     String?         @map("solicitud_padre_id") // prórroga, partición, interrupción o reencuadre
+  reservada            Boolean         @default(false)
+  dictamenVencido      Boolean         @default(false) @map("dictamen_vencido")
+  excepcionMotivo      String?         @map("excepcion_motivo")
+  excepcionInstrumento String?         @map("excepcion_instrumento")
+  excepcionPorId       String?         @map("excepcion_por_id")
+  excepcionEn          DateTime?       @map("excepcion_en")
+  version              Int             @default(0) // control de concurrencia optimista
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  institucion       Institucion            @relation(fields: [institucionId], references: [id])
+  docente           Docente                @relation(fields: [docenteId], references: [id])
+  tipoLicencia      TipoLicencia           @relation(fields: [tipoLicenciaId], references: [id])
+  designaciones     SolicitudDesignacion[]
+  documentos        DocumentoLicencia[]
+  autorizaciones    Autorizacion[]
+  historial         HistorialEstado[]
+  reincorporacion   Reincorporacion?
+  reemplazos        Reemplazo[]
+  motivoNomenclador MotivoLicencia?        @relation(fields: [motivoId], references: [id])
+  padre             SolicitudLicencia?     @relation("Derivadas", fields: [solicitudPadreId], references: [id])
+  derivadas         SolicitudLicencia[]    @relation("Derivadas")
+  instrumentos      InstrumentoLegal[]
+
+  @@unique([institucionId, numero])
+  @@index([institucionId, estado])
+  @@index([docenteId, fechaDesde, fechaHasta])
+  @@map("solicitudes_licencias")
+}
+
+// Numeración correlativa de solicitudes por institución y año.
+model SecuenciaSolicitud {
+  institucionId String @map("institucion_id")
+  anio          Int
+  ultimo        Int    @default(0)
+
+  institucion Institucion @relation(fields: [institucionId], references: [id])
+
+  @@id([institucionId, anio])
+  @@map("secuencias_solicitudes")
+}
+
+model SolicitudDesignacion {
+  solicitudId   String            @map("solicitud_id")
+  designacionId String            @map("designacion_id")
+  /// Variante del nomenclador y revista CONGELADAS al presentar: si la revista cambia después, la licencia no cambia.
+  varianteId    String?           @map("variante_id")
+  revista       SituacionRevista?
+
+  solicitud   SolicitudLicencia @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  designacion Designacion       @relation(fields: [designacionId], references: [id])
+  variante    VarianteLicencia? @relation(fields: [varianteId], references: [id])
+
+  @@id([solicitudId, designacionId])
+  @@map("solicitudes_designaciones")
+}
+
+model DocumentoLicencia {
+  id              String    @id @default(uuid())
+  solicitudId     String    @map("solicitud_id")
+  archivoId       String    @unique @map("archivo_id")
+  tipoDocumento   String    @map("tipo_documento")
+  verificado      Boolean   @default(false)
+  verificadoPorId String?   @map("verificado_por_id")
+  verificadoEn    DateTime? @map("verificado_en")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  solicitud SolicitudLicencia @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  archivo   Archivo           @relation(fields: [archivoId], references: [id])
+
+  @@map("documentos_licencias")
+}
+
+model CircuitoAutorizacion {
+  id             String  @id @default(uuid())
+  institucionId  String  @map("institucion_id")
+  nombre         String
+  descripcion    String?
+  predeterminado Boolean @default(false)
+  activo         Boolean @default(true)
+
+  institucion Institucion    @relation(fields: [institucionId], references: [id])
+  pasos       PasoCircuito[]
+  tipos       TipoLicencia[]
+
+  @@map("circuitos_autorizacion")
+}
+
+model PasoCircuito {
+  id         String @id @default(uuid())
+  circuitoId String @map("circuito_id")
+  orden      Int
+  nombre     String
+  rolId      String @map("rol_id") // rol responsable del paso
+
+  circuito CircuitoAutorizacion @relation(fields: [circuitoId], references: [id], onDelete: Cascade)
+  rol      Rol                  @relation(fields: [rolId], references: [id])
+
+  @@unique([circuitoId, orden])
+  @@map("pasos_circuito")
+}
+
+model Autorizacion {
+  id          String               @id @default(uuid())
+  solicitudId String               @map("solicitud_id")
+  paso        Int
+  pasoNombre  String               @map("paso_nombre")
+  usuarioId   String               @map("usuario_id")
+  decision    DecisionAutorizacion
+  observacion String?
+  fecha       DateTime             @default(now())
+
+  solicitud SolicitudLicencia @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+
+  @@index([solicitudId])
+  @@map("autorizaciones")
+}
+
+model HistorialEstado {
+  id             String           @id @default(uuid())
+  solicitudId    String           @map("solicitud_id")
+  estadoAnterior EstadoSolicitud? @map("estado_anterior")
+  estadoNuevo    EstadoSolicitud  @map("estado_nuevo")
+  usuarioId      String           @map("usuario_id")
+  comentario     String?
+  fecha          DateTime         @default(now())
+
+  solicitud SolicitudLicencia @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+
+  @@index([solicitudId])
+  @@map("historial_estados")
+}
+
+model Reincorporacion {
+  id              String   @id @default(uuid())
+  solicitudId     String   @unique @map("solicitud_id")
+  fechaEfectiva   DateTime @map("fecha_efectiva") @db.Date
+  registradaPorId String   @map("registrada_por_id")
+  observaciones   String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  solicitud SolicitudLicencia @relation(fields: [solicitudId], references: [id])
+
+  @@map("reincorporaciones")
+}
+
+// ───────────────────────────── Reemplazos ─────────────────────────────
+
+model Reemplazo {
+  id               String          @id @default(uuid())
+  institucionId    String          @map("institucion_id")
+  solicitudId      String?         @map("solicitud_id")
+  titularId        String          @map("titular_id")
+  designacionId    String          @map("designacion_id")
+  fechaDesde       DateTime        @map("fecha_desde") @db.Date
+  fechaHasta       DateTime        @map("fecha_hasta") @db.Date
+  autorizadoPorId  String?         @map("autorizado_por_id")
+  instrumentoLegal String?         @map("instrumento_legal")
+  estado           EstadoReemplazo @default(PROPUESTO)
+  observaciones    String?
+  version          Int             @default(0) // control de concurrencia optimista
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  institucion Institucion        @relation(fields: [institucionId], references: [id])
+  solicitud   SolicitudLicencia? @relation(fields: [solicitudId], references: [id])
+  titular     Docente            @relation("Titular", fields: [titularId], references: [id])
+  designacion Designacion        @relation(fields: [designacionId], references: [id])
+  suplentes   ReemplazoDocente[]
+
+  @@index([institucionId, estado])
+  @@map("reemplazos")
+}
+
+// Un reemplazo puede cubrirse con uno o más suplentes (cobertura parcial).
+model ReemplazoDocente {
+  id          String   @id @default(uuid())
+  reemplazoId String   @map("reemplazo_id")
+  suplenteId  String   @map("suplente_id")
+  fechaDesde  DateTime @map("fecha_desde") @db.Date
+  fechaHasta  DateTime @map("fecha_hasta") @db.Date
+
+  reemplazo  Reemplazo   @relation(fields: [reemplazoId], references: [id], onDelete: Cascade)
+  suplente   Docente     @relation(fields: [suplenteId], references: [id])
+  coberturas Cobertura[]
+
+  @@map("reemplazo_docentes")
+}
+
+// Franja horaria de la designación cubierta por un suplente.
+model Cobertura {
+  id                 String @id @default(uuid())
+  reemplazoDocenteId String @map("reemplazo_docente_id")
+  horarioId          String @map("horario_id")
+
+  reemplazoDocente ReemplazoDocente @relation(fields: [reemplazoDocenteId], references: [id], onDelete: Cascade)
+  horario          Horario          @relation(fields: [horarioId], references: [id])
+
+  @@unique([reemplazoDocenteId, horarioId])
+  @@map("coberturas")
+}
+
+// ─────────────────────────── Complementarias ───────────────────────────
+
+model Asistencia {
+  id              String           @id @default(uuid())
+  institucionId   String           @map("institucion_id")
+  docenteId       String           @map("docente_id")
+  designacionId   String           @map("designacion_id")
+  fecha           DateTime         @db.Date
+  estado          EstadoAsistencia
+  justificada     Boolean          @default(false)
+  justificacion   String?
+  aviso           AvisoAusencia?
+  avisoEn         DateTime?        @map("aviso_en")
+  registradaPorId String           @map("registrada_por_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  institucion Institucion @relation(fields: [institucionId], references: [id])
+  docente     Docente     @relation(fields: [docenteId], references: [id])
+  designacion Designacion @relation(fields: [designacionId], references: [id])
+
+  @@unique([designacionId, fecha])
+  @@index([institucionId, fecha])
+  @@map("asistencias")
+}
+
+model Novedad {
+  id              String   @id @default(uuid())
+  institucionId   String   @map("institucion_id")
+  docenteId       String   @map("docente_id")
+  fecha           DateTime @db.Date
+  tipo            String
+  descripcion     String
+  registradaPorId String   @map("registrada_por_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  institucion Institucion @relation(fields: [institucionId], references: [id])
+  docente     Docente     @relation(fields: [docenteId], references: [id])
+
+  @@index([institucionId, fecha])
+  @@map("novedades")
+}
+
+model Notificacion {
+  id        String           @id @default(uuid())
+  usuarioId String           @map("usuario_id")
+  tipo      TipoNotificacion
+  titulo    String
+  mensaje   String
+  entidad   String?
+  entidadId String?          @map("entidad_id")
+  leida     Boolean          @default(false)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, leida])
+  @@map("notificaciones")
+}
+
+model Archivo {
+  id             String   @id @default(uuid())
+  institucionId  String   @map("institucion_id")
+  nombreOriginal String   @map("nombre_original")
+  mimeType       String   @map("mime_type")
+  tamanio        Int
+  ruta           String // relativa a STORAGE_DIR; nunca servida públicamente
+  sha256         String
+  confidencial   Boolean  @default(false) // datos médicos / sensibles
+  subidoPorId    String   @map("subido_por_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  institucion       Institucion        @relation(fields: [institucionId], references: [id])
+  documentoPersonal DocumentoPersonal?
+  documentoLicencia DocumentoLicencia?
+  instrumento       InstrumentoLegal?
+
+  @@map("archivos")
+}
+
+model Auditoria {
+  id                String   @id @default(uuid())
+  institucionId     String?  @map("institucion_id")
+  usuarioId         String?  @map("usuario_id")
+  accion            String
+  entidad           String
+  entidadId         String?  @map("entidad_id")
+  valoresAnteriores Json?    @map("valores_anteriores")
+  valoresNuevos     Json?    @map("valores_nuevos")
+  ip                String?
+  userAgent         String?  @map("user_agent")
+  fecha             DateTime @default(now())
+
+  institucion Institucion? @relation(fields: [institucionId], references: [id])
+
+  @@index([institucionId, fecha])
+  @@index([entidad, entidadId])
+  @@map("auditoria")
+}
+
+// ─────────── Nomenclador de licencias (Ley 647-E) ───────────
+
+/// Nivel "motivo" del nomenclador (p. ej. 1.1 Enfermedad o lesión común).
+model MotivoLicencia {
+  id         String     @id @default(uuid())
+  regimenId  String     @map("regimen_id")
+  agrupacion Int // 1 Salud, 2 Otras licencias, 3 Permisos, 4 Sanciones, 5 Movimientos provisorios
+  numero     Int
+  codigo     String // "1.1"
+  nombre     String
+  planillaIL PlanillaIL @default(NINGUNA) @map("planilla_il")
+  activo     Boolean    @default(true)
+
+  regimen     RegimenLicencia     @relation(fields: [regimenId], references: [id])
+  variantes   VarianteLicencia[]
+  saldos      SaldoLicencia[]
+  solicitudes SolicitudLicencia[]
+  tipoEspejo  TipoLicencia?
+
+  @@unique([regimenId, codigo])
+  @@map("motivos_licencia")
+}
+
+/// Nivel "variante" del nomenclador (p. ej. 1.1.3 Enfermedad común · Interino). Reemplazará a TipoLicencia.
+model VarianteLicencia {
+  id             String             @id @default(uuid())
+  motivoId       String             @map("motivo_id")
+  numero         Int
+  codigo         String // "1.1.3"
+  /// Denominación propia cuando difiere de la del motivo (p. ej. 5.2.2 Ubicación transitoria…).
+  denominacion   String?
+  encuadreLegal  String?            @map("encuadre_legal") // "331-A"
+  /// Situaciones de revista a las que aplica (vacío = cualquiera, p. ej. movimientos provisorios).
+  revistas       SituacionRevista[]
+  pctHaberes     Int?               @map("pct_haberes") // 100, 50, 25 o 0 (sin goce)
+  formaPagoTexto String?            @map("forma_pago_texto")
+  autoridad      AutoridadLicencia?
+  otorgaTexto    String?            @map("otorga_texto")
+  observaciones  String?
+  activa         Boolean            @default(true)
+
+  motivo      MotivoLicencia         @relation(fields: [motivoId], references: [id])
+  reglas      ReglaVariante[]
+  solicitudes SolicitudDesignacion[]
+
+  @@unique([motivoId, codigo])
+  @@map("variantes_licencia")
+}
+
+/// Regla evaluable de una variante, versionada por vigencia: si cambia la norma se carga otra versión.
+model ReglaVariante {
+  id            String    @id @default(uuid())
+  varianteId    String    @map("variante_id")
+  version       Int
+  vigenciaDesde DateTime  @map("vigencia_desde") @db.Date
+  vigenciaHasta DateTime? @map("vigencia_hasta") @db.Date
+  definicion    Json
+  nota          String? // fundamento, o diferencia (D1-D8) que resuelve
+  creadaPorId   String?   @map("creada_por_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  variante VarianteLicencia @relation(fields: [varianteId], references: [id], onDelete: Cascade)
+
+  @@unique([varianteId, version])
+  @@map("reglas_variantes")
+}
+
+/// Lectura rápida de topes por docente, motivo y período. Se recalcula; la fuente de verdad son las solicitudes.
+model SaldoLicencia {
+  id            String   @id @default(uuid())
+  docenteId     String   @map("docente_id")
+  motivoId      String   @map("motivo_id")
+  periodo       String // "2026", "2017-2026" (decenio), "CARRERA"
+  usados        Int      @default(0)
+  tope          Int?
+  tramoHaberes  Int?     @map("tramo_haberes") // % de haberes del tramo actual
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  docente Docente        @relation(fields: [docenteId], references: [id], onDelete: Cascade)
+  motivo  MotivoLicencia @relation(fields: [motivoId], references: [id])
+
+  @@unique([docenteId, motivoId, periodo])
+  @@map("saldos_licencia")
+}
+
+/// Disposición de la escuela, resolución de una autoridad externa o dictamen de Reconocimientos Médicos.
+model InstrumentoLegal {
+  id              String          @id @default(uuid())
+  institucionId   String          @map("institucion_id")
+  solicitudId     String?         @map("solicitud_id")
+  tipo            TipoInstrumento
+  numero          String
+  fecha           DateTime        @db.Date
+  emisor          String // "Dirección", "Ministerio de Educación", "Reconocimientos Médicos"…
+  /// Para dictámenes: si habilita la licencia.
+  favorable       Boolean?
+  archivoId       String?         @unique @map("archivo_id")
+  observaciones   String?
+  registradoPorId String          @map("registrado_por_id")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  institucion Institucion        @relation(fields: [institucionId], references: [id])
+  solicitud   SolicitudLicencia? @relation(fields: [solicitudId], references: [id])
+  archivo     Archivo?           @relation(fields: [archivoId], references: [id])
+
+  @@index([solicitudId])
+  @@index([institucionId, tipo, fecha])
+  @@map("instrumentos_legales")
+}
+
+/// Numeración correlativa de documentos (disposiciones) por institución, tipo y año.
+model SecuenciaDocumento {
+  institucionId String @map("institucion_id")
+  tipo          String
+  anio          Int
+  ultimo        Int    @default(0)
+
+  institucion Institucion @relation(fields: [institucionId], references: [id])
+
+  @@id([institucionId, tipo, anio])
+  @@map("secuencias_documentos")
+}

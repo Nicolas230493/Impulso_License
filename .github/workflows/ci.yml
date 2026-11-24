@@ -1,0 +1,77 @@
+# Integración continua (hallazgos 7 y 29).
+# - Instala sin ejecutar scripts de paquetes (npm ci --ignore-scripts); los pasos que necesitan binarios se corren explícitos.
+# - Falla con vulnerabilidades altas (npm audit --audit-level=high) salvo excepción documentada en docs/seguridad.md.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-password-solo-para-ci
+          POSTGRES_DB: edulicencias
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci" --health-interval 5s --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://ci:ci-password-solo-para-ci@localhost:5432/edulicencias?schema=public
+      # En CI el mismo usuario hace de dueño y de aplicación (en los entornos reales son dos, ver docker/postgres).
+      DATABASE_URL_MIGRACIONES: postgresql://ci:ci-password-solo-para-ci@localhost:5432/edulicencias?schema=public
+      SEED_ADMIN_PASSWORD: CiSeed-Password-2026
+      COOKIE_SECURE: "false"
+      CORS_ORIGINS: http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      # Secreto JWT efímero por corrida (nunca uno fijo en el repositorio).
+      - run: echo "JWT_ACCESS_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - run: echo "CLAVE_CIFRADO=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      # Prisma necesita generar el cliente; con --ignore-scripts no corre su postinstall.
+      - run: npx prisma generate
+      - run: npm audit --audit-level=high
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: npx prisma migrate deploy
+      - run: npx prisma db seed
+      - run: npm run build
+      - name: E2E (API real sobre base recién sembrada)
+        run: |
+          node dist/main.js &
+          npx --yes wait-on http-get://localhost:3000/api/auth/me --timeout 60000 || true
+          npm run test:e2e
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # esbuild funciona sin su script de instalación: usa el binario del paquete opcional de la plataforma.
+      - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=high
+      - run: npm run build

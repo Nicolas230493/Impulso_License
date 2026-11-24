@@ -1,0 +1,15 @@
+node_modules/
+dist/
+# Cualquier archivo de entorno (.env, .env.local, .env.production…), salvo los ejemplos (hallazgo 28).
+.env*
+!.env.example
+backend/storage/
+coverage/
+*.log
+
+# Volcados de base de datos (datos personales): nunca al repositorio
+respaldos/
+*.dump
+backend/revision-migracion-solicitudes.csv
+backend/reporte-carga-disposiciones.csv
+*.tsbuildinfo
