@@ -271,3 +271,4 @@ Lo que falta, ordenado por prioridad. Se recomienda avanzar primero con el grupo
       se cuenta completa, y `MAX_DIAS_POR_ANIO` se imputa al año de inicio.
 - [ ] **Datos personales (Ley 25.326):** política de retención y exportación del legajo completo a pedido del titular.
 # Impulso_License
+# Impulso_License
